@@ -29,7 +29,7 @@ func (j *Jack) Samples() <-chan []jack.AudioSample {
 
 func (j *Jack) process(nFrames uint32) int {
 	p := j.portIn
-	if p == nil {
+	if j.portSrc == nil {
 		return 0
 	}
 	buf := p.GetBuffer(nFrames)
@@ -53,10 +53,11 @@ func (j *Jack) portRegistration(id jack.PortId, made bool) {
 		return
 	}
 	if strings.HasPrefix(name, clientName) || !strings.Contains(name, j.srcPattern) {
+		log.Println("ignoring non-match:", name)
 		return
 	}
 	if j.portSrc != nil || len(j.portc) > 0 || j.connecting {
-		log.Println("ignoring:", name)
+		log.Println("ignoring match:", name)
 		return
 	}
 	j.connecting = true

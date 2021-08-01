@@ -1,5 +1,7 @@
 package main
 
+const filterScale = float32(-4)
+
 type spectrogram struct {
 	plan      *fftPlan
 	lastSamps []float32
@@ -11,10 +13,9 @@ type spectrogram struct {
 func (sp *spectrogram) run() {
 	for sampsFull := range sp.inc {
 		w := len(sampsFull) / sp.split
-		fs := float32(-4)
 		// FIR filter, shift down by window.
 		for i, v := range sp.lastSamps[len(sampsFull):] {
-			sp.lastSamps[i] = v / fs
+			sp.lastSamps[i] = v / filterScale
 		}
 		for i := 0; i < sp.split; i++ {
 			samps := sampsFull[w*i : w*(i+1)]

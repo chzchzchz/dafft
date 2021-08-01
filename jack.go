@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 
@@ -12,9 +13,10 @@ import (
 var clientName = "dafft"
 
 type Jack struct {
-	client  *jack.Client
-	portIn  *jack.Port
-	portSrc *jack.Port
+	client     *jack.Client
+	clientName string
+	portIn     *jack.Port
+	portSrc    *jack.Port
 
 	sampc      chan []jack.AudioSample
 	portc      chan *jack.Port
@@ -52,7 +54,7 @@ func (j *Jack) portRegistration(id jack.PortId, made bool) {
 		}
 		return
 	}
-	if strings.HasPrefix(name, clientName) || !strings.Contains(name, j.srcPattern) {
+	if strings.HasPrefix(name, j.clientName) || !strings.Contains(name, j.srcPattern) {
 		log.Println("ignoring non-match:", name)
 		return
 	}
@@ -73,7 +75,7 @@ func (j *Jack) SourceName() string {
 
 func (j *Jack) srcPorts(name string) (ret []*jack.Port) {
 	for _, port := range j.client.GetPorts(name, "", 0) {
-		if !strings.HasPrefix(port, clientName) {
+		if !strings.HasPrefix(port, j.clientName) {
 			p := j.client.GetPortByName(port)
 			ret = append(ret, p)
 		}
@@ -100,12 +102,14 @@ func (j *Jack) logPorts() {
 }
 
 func NewJack(src string) (*Jack, error) {
+	clientName := fmt.Sprintf("dafft-%d", os.Getpid())
 	client, status := jack.ClientOpen(clientName, jack.NoStartServer)
 	if status != 0 {
 		return nil, jack.StrError(status)
 	}
 	j := &Jack{
 		client:     client,
+		clientName: clientName,
 		sampc:      make(chan []jack.AudioSample, 2),
 		portc:      make(chan *jack.Port, 2),
 		srcPattern: src,

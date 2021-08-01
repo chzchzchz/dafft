@@ -21,6 +21,9 @@ type fftWindow struct {
 	w     int
 	h     int
 	sampW int
+	bank  *Bank
+
+	eqTemp *Bank
 
 	sampc <-chan []jack.AudioSample
 	fftc  <-chan []float32
@@ -35,10 +38,9 @@ type fftWindow struct {
 
 const resizable = true
 const popup = true
-const maxHz = 3000
+const maxHz = 2000
 const minHz = 0
-const fftWinDiv = 3
-const fftTextureWidth = (maxHz - minHz) / fftWinDiv
+const fftWinDiv = 2
 
 func NewFFTWindow(name string, sampc <-chan []jack.AudioSample, h int) (fw *fftWindow, err error) {
 	if row0 := <-sampc; row0 == nil {
@@ -54,11 +56,12 @@ func NewFFTWindow(name string, sampc <-chan []jack.AudioSample, h int) (fw *fftW
 	if popup {
 		winFlags |= sdl.WINDOW_UTILITY
 	}
+	bank := NewBankLinear(sampHz, minHz, maxHz, fftWinDiv)
 	win, e := sdl.CreateWindow(
 		name,
 		sdl.WINDOWPOS_UNDEFINED,
 		sdl.WINDOWPOS_UNDEFINED,
-		int32(fftTextureWidth),
+		int32(bank.Width()),
 		int32(h),
 		winFlags)
 	if e != nil {
@@ -90,7 +93,7 @@ func NewFFTWindow(name string, sampc <-chan []jack.AudioSample, h int) (fw *fftW
 	if (info.Flags & sdl.RENDERER_ACCELERATED) == 0 {
 		log.Println("no hw acceleration")
 	}
-	if err := r.SetLogicalSize(int32(fftTextureWidth), int32(h)); err != nil {
+	if err := r.SetLogicalSize(int32(bank.Width()), int32(h)); err != nil {
 		return nil, err
 	}
 	if err := r.SetIntegerScale(false); err != nil {
@@ -98,13 +101,16 @@ func NewFFTWindow(name string, sampc <-chan []jack.AudioSample, h int) (fw *fftW
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	//	bank = NewBankEqualTemperment(sampHz, 49, 12 * 6)
 	return &fftWindow{
 		win:    win,
+		bank:   bank,
 		r:      r,
-		w:      fftTextureWidth,
+		w:      bank.Width(),
 		sampW:  sampHz,
+		eqTemp: NewBankEqualTemperment(sampHz, 49 /* G1 */, 12*6),
 		h:      h,
-		ft:     newFFTTexture(r, fftTextureWidth, h),
+		ft:     newFFTTexture(r, bank.Width(), h),
 		sampc:  sampc,
 		ctx:    ctx,
 		cancel: cancel,
@@ -187,17 +193,18 @@ func (fw *fftWindow) Run() {
 func (fw *fftWindow) updateRows() {
 	for len(fw.fftc) > 0 {
 		if row := <-fw.fftc; row != nil {
-			r := row[minHz:maxHz]
-			rr := make([]float32, len(r)/fftWinDiv)
-			for i := 0; i < len(r); i++ {
-				rr[i/fftWinDiv] += rr[i/fftWinDiv] + row[i]/float32(fftWinDiv)
-			}
-			fw.ft.add(rr)
+			fw.ft.add(fw.bank.apply(row))
 		} else {
 			log.Println("stream terminated")
 			return
 		}
 	}
+}
+
+func (fw *fftWindow) x2hz(x int32) int64 {
+	t := float64(x) / float64(fw.w)
+	offHz := int64(t * (maxHz - minHz))
+	return minHz + offHz
 }
 
 func (fw *fftWindow) handleEvent(event sdl.Event) bool {
@@ -220,7 +227,8 @@ func (fw *fftWindow) handleEvent(event sdl.Event) bool {
 			fw.redraw()
 		}
 	case *sdl.MouseMotionEvent:
-		// cursorMHz := float64(fw.x2hz(ev.X)) / 1.0e6
+		hz := int(fw.x2hz(ev.X))
+		fmt.Printf("%dHz %s\n", hz, hz2tone(hz))
 	case *sdl.WindowEvent:
 		if fw.pause {
 			fw.redraw()

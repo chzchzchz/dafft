@@ -3,6 +3,7 @@ package main
 import (
 	"image/color"
 	//"math"
+	"unsafe"
 
 	"github.com/veandco/go-sdl2/sdl"
 )
@@ -38,7 +39,7 @@ func newFFTTexture(r *sdl.Renderer, w, h int) *fftTexture {
 		if err != nil {
 			panic(err)
 		}
-		if err = ft.rows[i].Update(ft.rowRect, ft.row8888, 4); err != nil {
+		if err = ft.rows[i].Update(ft.rowRect, unsafe.Pointer(&ft.row8888[0]), 4); err != nil {
 			panic(err)
 		}
 	}
@@ -96,7 +97,7 @@ func (ft *fftTexture) add(row []float32) {
 		ft.row8888[4*i+1] = byte(c.G)
 		ft.row8888[4*i+2] = byte(c.B)
 	}
-	ft.rows[ft.rowIdx].Update(ft.rowRect, ft.row8888, 4)
+	ft.rows[ft.rowIdx].Update(ft.rowRect, unsafe.Pointer(&ft.row8888[0]), 4)
 
 	ft.rowIdx++
 	if ft.rowIdx >= len(ft.rows) {

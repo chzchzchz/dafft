@@ -158,7 +158,6 @@ func NewJack(src string) (*Jack, error) {
 }
 
 func (j *Jack) Close() {
-	j.client.Deactivate()
 	close(j.sampc)
 	j.client.Close()
 	close(j.portc)

@@ -15,15 +15,13 @@ import (
 var sampHz = 44100
 
 type fftWindow struct {
-	win   *sdl.Window
-	r     *sdl.Renderer
-	ft    *fftTexture
-	w     int
-	h     int
-	sampW int
-	bank  *Bank
-
-	eqTemp *Bank
+	win    *sdl.Window
+	r      *sdl.Renderer
+	ft     *fftTexture
+	w      int
+	h      int
+	chunkW int
+	bank   *Bank
 
 	sampc <-chan []jack.AudioSample
 	fftc  <-chan []float32
@@ -41,12 +39,16 @@ const popup = true
 const maxHz = 2000
 const minHz = 0
 const fftWinDiv = 2
+const fftSize = 8192
+const fftSplit = 4
 
 func NewFFTWindow(name string, sampc <-chan []jack.AudioSample, h int) (fw *fftWindow, err error) {
+	chunkW := 0
 	if row0 := <-sampc; row0 == nil {
 		return nil, fmt.Errorf("failed reading first row of samples")
 	} else {
 		log.Println("got row samples", len(row0))
+		chunkW = len(row0)
 	}
 
 	winFlags := uint32(sdl.WINDOW_SHOWN)
@@ -56,7 +58,7 @@ func NewFFTWindow(name string, sampc <-chan []jack.AudioSample, h int) (fw *fftW
 	if popup {
 		winFlags |= sdl.WINDOW_UTILITY
 	}
-	bank := NewBankLinear(sampHz, minHz, maxHz, fftWinDiv)
+	bank := NewBankLinear(sampHz/fftSize, minHz, maxHz, fftWinDiv)
 	win, e := sdl.CreateWindow(
 		name,
 		sdl.WINDOWPOS_UNDEFINED,
@@ -101,14 +103,12 @@ func NewFFTWindow(name string, sampc <-chan []jack.AudioSample, h int) (fw *fftW
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	//	bank = NewBankEqualTemperment(sampHz, 49, 12 * 6)
 	return &fftWindow{
 		win:    win,
 		bank:   bank,
 		r:      r,
 		w:      bank.Width(),
-		sampW:  sampHz,
-		eqTemp: NewBankEqualTemperment(sampHz, 49 /* G1 */, 12*6),
+		chunkW: chunkW,
 		h:      h,
 		ft:     newFFTTexture(r, bank.Width(), h),
 		sampc:  sampc,
@@ -153,7 +153,7 @@ func (fw *fftWindow) sample2fft() <-chan []float32 {
 			select {
 			case row, ok := <-fw.sampc:
 				if !ok {
-					break
+					return
 				}
 				r32 := *(*[]float32)(unsafe.Pointer(&row))
 				select {
@@ -169,8 +169,8 @@ func (fw *fftWindow) sample2fft() <-chan []float32 {
 }
 func (fw *fftWindow) Run() {
 	// FFT uses frame rate limited channel to avoid processing dropped rows.
-	fw.fftc = SpectrogramChan(fw.sample2fft(), fw.sampW, 4)
-	fps := float64(1 + (44100 / 1024))
+	fw.fftc = SpectrogramChan(fw.sample2fft(), fftSize, fftSplit)
+	fps := float64(1 + sampHz/fw.chunkW)
 	fpsDur := time.Duration(float64(time.Second) / fps)
 	ticker := time.NewTicker(fpsDur)
 	defer ticker.Stop()

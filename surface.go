@@ -15,9 +15,6 @@ type fftTexture struct {
 	w       int
 	row8888 []byte
 	rowRect *sdl.Rect
-
-	lastMin float32
-	lastMax float32
 }
 
 func newFFTTexture(r *sdl.Renderer, w, h int) *fftTexture {
@@ -70,29 +67,15 @@ func (ft *fftTexture) blit() {
 }
 
 func (ft *fftTexture) add(row []float32) {
-	min, max := row[0], row[0]
-	for _, v := range row[1:] {
-		if v > max {
-			max = v
-		}
-		if v < min {
-			min = v
-		}
-	}
-	if max > ft.lastMax {
-		ft.lastMax = max
-	}
-	// max = ft.lastMax
-	if min > ft.lastMin {
-		ft.lastMin = min
-	}
-	min = ft.lastMin
-
-	w := float32(len(colorScale))
+	span := dbMax - dbMin
 	for i, v := range row {
-		vv := (v - min) / (max - min)
-		cv := w * vv * vv * vv * vv
-		c := FFTBin2Color(w * cv)
+		norm := (v - dbMin) / span
+		if norm < 0 {
+			norm = 0
+		} else if norm > 1 {
+			norm = 1
+		}
+		c := FFTBin2Color(norm)
 		ft.row8888[4*i] = byte(c.R)
 		ft.row8888[4*i+1] = byte(c.G)
 		ft.row8888[4*i+2] = byte(c.B)
@@ -113,24 +96,27 @@ var colorScale = []color.NRGBA{
 	{255, 255, 255, 255},
 }
 
+// Display range for dB-magnitude rows.
+const (
+	dbMin = float32(-100)
+	dbMax = float32(0)
+)
+
 func interpolate(t float32, a, b uint8) uint8 { return uint8(float32(a)*(1-t) + float32(b)*t) }
 
 func FFTBin2Color(v float32) color.NRGBA {
-	idx := float32(0.0)
-	if v >= 1.0 {
+	idx := float32(len(colorScale)-1) * v
+	if !(v >= 0) {
+		idx = 0
+	} else if v >= 1 {
 		idx = float32(len(colorScale) - 1)
-	} else if v == v && v >= 0.0 {
-		idx = float32(len(colorScale)-2) * v
-		if idx >= float32(len(colorScale)-1) {
-			idx = float32(len(colorScale) - 2)
-		}
 	}
 	ii := int(idx)
-	t := idx - float32(ii)
-	prev, next := colorScale[ii], colorScale[ii]
-	if ii != len(colorScale)-1 {
-		next = colorScale[ii+1]
+	if ii >= len(colorScale)-1 {
+		return colorScale[len(colorScale)-1]
 	}
+	t := idx - float32(ii)
+	prev, next := colorScale[ii], colorScale[ii+1]
 	return color.NRGBA{
 		interpolate(t, prev.R, next.R),
 		interpolate(t, prev.G, next.G),

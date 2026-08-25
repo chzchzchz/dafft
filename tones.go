@@ -105,7 +105,7 @@ func hz2tone(hz int) string {
 			}
 		} else {
 			d := hzf - tones[i].hz
-			if d > (tones[i+1].hz-tones[i+1].hz)/2.0 {
+			if d > (tones[i+1].hz-tones[i].hz)/2.0 {
 				i++
 			}
 		}

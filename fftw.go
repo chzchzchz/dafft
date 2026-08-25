@@ -16,7 +16,6 @@ type fftPlan struct {
 	fftw_p C.fftwf_plan
 	n      int
 	out    []float32
-	in     []float32
 }
 
 func (p *fftPlan) Execute(data []float32) []float32 {
@@ -42,5 +41,5 @@ func NewPlan(samples int) *fftPlan {
 		C.FFTW_R2HC,
 		C.uint(C.FFTW_PRESERVE_INPUT|C.FFTW_ESTIMATE))
 	planMu.Unlock()
-	return &fftPlan{fftw_p: p, n: samples, in: in, out: out}
+	return &fftPlan{fftw_p: p, n: samples, out: out}
 }

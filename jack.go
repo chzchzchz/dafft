@@ -20,6 +20,7 @@ type Jack struct {
 
 	sampc      chan []jack.AudioSample
 	portc      chan *jack.Port
+	quit       chan struct{}
 	connecting bool
 	srcPattern string
 	wg         sync.WaitGroup
@@ -63,7 +64,12 @@ func (j *Jack) portRegistration(id jack.PortId, made bool) {
 		return
 	}
 	j.connecting = true
-	j.portc <- p
+	select {
+	case j.portc <- p:
+	default:
+		j.connecting = false
+		log.Println("connect queue full; ignoring:", name)
+	}
 }
 
 func (j *Jack) SourceName() string {
@@ -88,6 +94,7 @@ func (j *Jack) connectInput(src *jack.Port) error {
 	log.Printf("connecting src=%q(%s) to dst=%q(%s)",
 		src.GetName(), src.GetType(), p.GetName(), p.GetType())
 	if code := j.client.ConnectPorts(src, p); code != 0 {
+		j.connecting = false
 		return jack.StrError(code)
 	}
 	j.connecting, j.portSrc = false, src
@@ -112,6 +119,7 @@ func NewJack(src string) (*Jack, error) {
 		clientName: clientName,
 		sampc:      make(chan []jack.AudioSample, 2),
 		portc:      make(chan *jack.Port, 2),
+		quit:       make(chan struct{}),
 		srcPattern: src,
 	}
 
@@ -133,8 +141,15 @@ func NewJack(src string) (*Jack, error) {
 	j.wg.Add(1)
 	go func() {
 		defer j.wg.Done()
-		for p := range j.portc {
-			j.connectInput(p)
+		for {
+			select {
+			case p := <-j.portc:
+				if err := j.connectInput(p); err != nil {
+					log.Println("connect failed:", err)
+				}
+			case <-j.quit:
+				return
+			}
 		}
 	}()
 
@@ -158,8 +173,7 @@ func NewJack(src string) (*Jack, error) {
 }
 
 func (j *Jack) Close() {
-	close(j.sampc)
-	j.client.Close()
-	close(j.portc)
+	close(j.quit)
 	j.wg.Wait()
+	j.client.Close()
 }
